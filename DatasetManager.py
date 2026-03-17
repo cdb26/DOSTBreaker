@@ -625,16 +625,22 @@ class DatasetManagerApp(ctk.CTk):
         for abs_path, rel_folder, fname in walk_images(root):
             parts = parse_filename(fname)
             if not parts:
+                # File doesn't match naming convention — skip
                 continue
+
             if parts["room"] not in self._move_rooms:
                 continue
 
             if struct == "room_folder":
-                sub = "color" if parts["ext"] == ".jpg" else "depth_raw"
+                # Always route by actual file extension, never by which subfolder it came from
+                if fname.lower().endswith(".jpg"):
+                    sub = "color"
+                else:
+                    sub = "depth_raw"
                 dst = os.path.join(dest, parts["room"], sub, fname)
             elif struct == "flat":
                 dst = os.path.join(dest, fname)
-            else:  # mirror
+            else:  # mirror — preserve the exact relative folder from dataset root
                 dst = os.path.join(dest, rel_folder, fname)
 
             plan.append((abs_path, dst))
@@ -650,13 +656,19 @@ class DatasetManagerApp(ctk.CTk):
             self._log(self._move_log, "No matching files found for selected rooms.")
             return
         verb = "COPY" if self._move_copy.get() else "MOVE"
-        self._log(self._move_log, f"{'SOURCE FILE':<50}  →  DESTINATION ({verb})")
-        self._log(self._move_log, "─" * 120)
+        # count per type
+        jpg_count = sum(1 for s, _ in plan if s.lower().endswith(".jpg"))
+        png_count = sum(1 for s, _ in plan if s.lower().endswith(".png"))
+        self._log(self._move_log,
+                  f"Found {len(plan)} file(s): {jpg_count} color (.jpg)  +  {png_count} depth (.png)")
+        self._log(self._move_log, f"{'SOURCE':<55}  →  DESTINATION ({verb})")
+        self._log(self._move_log, "─" * 130)
         for src, dst in plan:
-            self._log(self._move_log, f"  {os.path.basename(src):<50}  →  {dst}")
+            tag = "[color]" if src.lower().endswith(".jpg") else "[depth]"
+            self._log(self._move_log, f"  {tag}  {os.path.basename(src):<48}  →  {dst}")
         self._log(self._move_log,
                   f"\n{len(plan)} file(s) would be {'copied' if self._move_copy.get() else 'moved'}.")
-        self._set_status(f"Move preview: {len(plan)} file(s)")
+        self._set_status(f"Move preview: {len(plan)} file(s)  ({jpg_count} color, {png_count} depth)")
 
     def _execute_move(self):
         plan = self._gather_move_plan()
@@ -666,8 +678,12 @@ class DatasetManagerApp(ctk.CTk):
             messagebox.showinfo("Nothing to do", "No matching files found.")
             return
         verb = "copy" if self._move_copy.get() else "move"
+        jpg_count = sum(1 for s, _ in plan if s.lower().endswith(".jpg"))
+        png_count = sum(1 for s, _ in plan if s.lower().endswith(".png"))
         if not messagebox.askyesno("Confirm",
                                    f"{verb.capitalize()} {len(plan)} file(s)?\n"
+                                   f"  • {jpg_count} color (.jpg)\n"
+                                   f"  • {png_count} depth (.png)\n\n"
                                    f"Rooms: {', '.join(self._move_rooms)}"):
             return
         self._clear_log(self._move_log)
@@ -679,10 +695,12 @@ class DatasetManagerApp(ctk.CTk):
                     shutil.copy2(src, dst)
                 else:
                     shutil.move(src, dst)
-                self._log(self._move_log, f"✔  {os.path.basename(src)}")
+                tag = "[color]" if src.lower().endswith(".jpg") else "[depth]"
+                self._log(self._move_log, f"✔  {tag}  {os.path.basename(src)}")
                 done += 1
             except Exception as e:
-                self._log(self._move_log, f"✘  {os.path.basename(src)}  ERROR: {e}")
+                self._log(self._move_log,
+                          f"✘  {os.path.basename(src)}  →  {dst}\n     ERROR: {e}")
                 errors += 1
         summary = f"Done: {done} {verb}d, {errors} error(s)."
         self._log(self._move_log, "\n" + summary)
@@ -1079,6 +1097,9 @@ class DatasetManagerApp(ctk.CTk):
                         pass
         messagebox.showinfo("Done", f"Copied {copied} file(s) to\n{dest}")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  PREVIEW / SCAN
+    # ══════════════════════════════════════════════════════════════════════════
     def _scan_all(self):
         root = self._get_root()
         if not root:
@@ -1102,6 +1123,8 @@ class DatasetManagerApp(ctk.CTk):
         self._scan_count.set(f"{total} valid, {bad} unrecognised")
         self._set_status(f"Scan complete: {total} images found")
 
+
+# ─── Entry ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = DatasetManagerApp()
     app.mainloop()
