@@ -1122,41 +1122,121 @@ class DatasetManagerApp(ctk.CTk):
             row = ctk.CTkFrame(obj_scroll, fg_color=BG_MID, corner_radius=4)
             row.pack(fill="x", pady=2)
 
+            # object name label (left side)
             ctk.CTkLabel(row, text=name, font=("Courier New", 10),
-                         text_color=TEXT_MAIN, anchor="w", width=100).pack(
-                             side="left", padx=8, pady=6)
+                         text_color=TEXT_MAIN, anchor="w", width=90).pack(
+                             side="left", padx=(8, 4), pady=6)
 
             cnt_var = tk.StringVar(value=str(counts.get(name, 0)))
 
-            minus_btn = ctk.CTkButton(row, text="−", width=28, height=28,
+            minus_btn = ctk.CTkButton(row, text="−", width=26, height=26,
                                       fg_color=BG_FIELD, hover_color=DANGER,
                                       font=("Courier New", 13, "bold"),
                                       text_color=TEXT_MAIN, corner_radius=4,
                                       command=lambda n=name: _change_count(n, -1))
-            minus_btn.pack(side="left", padx=2)
+            minus_btn.pack(side="left", padx=1)
 
             ctk.CTkLabel(row, textvariable=cnt_var,
                          font=("Courier New", 12, "bold"),
-                         text_color=ACCENT, width=34,
-                         anchor="center").pack(side="left", padx=2)
+                         text_color=ACCENT, width=30,
+                         anchor="center").pack(side="left", padx=1)
 
-            plus_btn = ctk.CTkButton(row, text="+", width=28, height=28,
+            plus_btn = ctk.CTkButton(row, text="+", width=26, height=26,
                                      fg_color=BG_FIELD, hover_color=SUCCESS,
                                      font=("Courier New", 13, "bold"),
                                      text_color=TEXT_MAIN, corner_radius=4,
                                      command=lambda n=name: _change_count(n, +1))
-            plus_btn.pack(side="left", padx=2)
+            plus_btn.pack(side="left", padx=1)
+
+            # ── edit button ───────────────────────────────────────────────────
+            edit_btn = ctk.CTkButton(row, text="✎", width=26, height=26,
+                                     fg_color=BG_FIELD, hover_color=WARNING,
+                                     font=("Courier New", 12, "bold"),
+                                     text_color=WARNING, corner_radius=4,
+                                     command=lambda n=name: _edit_obj_name(n))
+            edit_btn.pack(side="left", padx=(4, 1))
+
+            # ── delete button ─────────────────────────────────────────────────
+            del_btn = ctk.CTkButton(row, text="✕", width=26, height=26,
+                                    fg_color=BG_FIELD, hover_color=DANGER,
+                                    font=("Courier New", 11, "bold"),
+                                    text_color=DANGER, corner_radius=4,
+                                    command=lambda n=name: _delete_obj(n))
+            del_btn.pack(side="left", padx=(1, 6))
 
             obj_rows.append({"name": name, "var": cnt_var})
 
         def _change_count(name: str, delta: int):
             counts = _get_counts_for_current()
             counts[name] = max(0, counts.get(name, 0) + delta)
-            # refresh just the var
             for r in obj_rows:
                 if r["name"] == name:
                     r["var"].set(str(counts[name]))
                     break
+
+        def _delete_obj(name: str):
+            """Remove an object from all images after confirmation."""
+            if not messagebox.askyesno(
+                    "Delete object",
+                    f"Remove '{name}' and all its counts from every image?",
+                    parent=win):
+                return
+            for d in state["object_counts"].values():
+                d.pop(name, None)
+            _rebuild_obj_table()
+
+        def _edit_obj_name(old_name: str):
+            """Rename an object across all images."""
+            dlg = ctk.CTkToplevel(win)
+            dlg.title("Edit Object Name")
+            dlg.geometry("320x170")
+            dlg.resizable(False, False)
+            dlg.configure(fg_color=BG_DARK)
+            dlg.grab_set()
+            dlg.lift()
+            dlg.focus_force()
+
+            ctk.CTkLabel(dlg, text="Rename object:",
+                         font=("Courier New", 10), text_color=TEXT_DIM).pack(
+                             pady=(18, 4))
+
+            name_var = tk.StringVar(value=old_name)
+            entry = ctk.CTkEntry(dlg, textvariable=name_var, width=240,
+                                 font=("Courier New", 12),
+                                 fg_color=BG_FIELD, text_color=TEXT_MAIN,
+                                 border_color=ACCENT)
+            entry.pack(pady=4)
+            entry.select_range(0, "end")
+            entry.focus_set()
+
+            err_var = tk.StringVar(value="")
+            ctk.CTkLabel(dlg, textvariable=err_var, font=("Courier New", 9),
+                         text_color=DANGER).pack(pady=(2, 0))
+
+            def _apply():
+                new_name = name_var.get().strip()
+                if not new_name:
+                    err_var.set("Name cannot be empty.")
+                    return
+                if new_name == old_name:
+                    dlg.destroy()
+                    return
+                # check for duplicates
+                if new_name in _all_known_objects():
+                    err_var.set(f"'{new_name}' already exists.")
+                    return
+                # rename key in every image count dict
+                for d in state["object_counts"].values():
+                    if old_name in d:
+                        d[new_name] = d.pop(old_name)
+                dlg.destroy()
+                _rebuild_obj_table()
+
+            ctk.CTkButton(dlg, text="Save", height=36,
+                          fg_color=ACCENT, hover_color=ACCENT2,
+                          font=("Courier New", 11, "bold"), text_color="white",
+                          command=_apply).pack(fill="x", padx=20, pady=(8, 4))
+            dlg.bind("<Return>", lambda e: _apply())
 
         def _add_object_dialog():
             dlg = ctk.CTkToplevel(win)
@@ -1233,6 +1313,12 @@ class DatasetManagerApp(ctk.CTk):
                                  font=("Courier New", 11, "bold"), text_color="white",
                                  command=lambda: _save_excel())
         save_btn.pack(side="left", padx=14)
+
+        rename_btn = ctk.CTkButton(nav_row, text="✎  Rename", width=120, height=36,
+                                   fg_color=WARNING, hover_color="#D4901E",
+                                   font=("Courier New", 11, "bold"), text_color="white",
+                                   command=lambda: _rename_dialog())
+        rename_btn.pack(side="left", padx=6)
 
         fname_lbl = ctk.CTkLabel(bot, text="", font=("Courier New", 9),
                                  text_color=TEXT_DIM)
@@ -1532,6 +1618,199 @@ class DatasetManagerApp(ctk.CTk):
                     parent=win)
             except Exception as e:
                 messagebox.showerror("Save failed", str(e), parent=win)
+
+        # ── RENAME CURRENT FILE ──────────────────────────────────────────────
+        def _rename_dialog():
+            rec = matches[state["idx"]]
+            p   = rec["parts"]
+
+            dlg = ctk.CTkToplevel(win)
+            dlg.title("Rename File")
+            dlg.geometry("560x460")
+            dlg.resizable(False, False)
+            dlg.configure(fg_color=BG_DARK)
+            dlg.grab_set()
+            dlg.lift()
+            dlg.focus_force()
+
+            ctk.CTkLabel(dlg, text="RENAME  FILE",
+                         font=("Courier New", 11, "bold"),
+                         text_color=ACCENT).pack(pady=(18, 2))
+            ctk.CTkLabel(dlg, text="Edit the fields below. Both color & depth files will be renamed.",
+                         font=("Courier New", 9), text_color=TEXT_DIM).pack(pady=(0, 12))
+
+            form = ctk.CTkFrame(dlg, fg_color=BG_FIELD, corner_radius=8)
+            form.pack(fill="x", padx=20, pady=4)
+
+            # ── field variables pre-filled from current record ────────────────
+            v_room    = tk.StringVar(value=p["room"])
+            v_height  = tk.StringVar(value=p["height"])
+            v_angle   = tk.StringVar(value=p["angle"])
+            v_dist    = tk.StringVar(value=p["distance"])
+            v_light   = tk.StringVar(value=p["lighting"])
+            v_seq     = tk.StringVar(value=p["sequence"])
+
+            def _row(parent, label, widget_fn, row):
+                ctk.CTkLabel(parent, text=label, font=("Courier New", 10),
+                             text_color=TEXT_DIM, anchor="e", width=130).grid(
+                                 row=row, column=0, padx=(14,8), pady=8, sticky="e")
+                w = widget_fn(parent)
+                w.grid(row=row, column=1, padx=(0,14), pady=8, sticky="w")
+                return w
+
+            _row(form, "Floor+Room (FFRRRR)", lambda p:
+                 ctk.CTkEntry(p, textvariable=v_room, width=160,
+                              font=("Courier New", 11), fg_color=BG_CARD,
+                              text_color=TEXT_MAIN, border_color=ACCENT), 0)
+
+            _row(form, "Height", lambda p:
+                 ctk.CTkOptionMenu(p, variable=v_height,
+                                   values=HEIGHT_OPTS,
+                                   fg_color=BG_CARD, button_color=ACCENT,
+                                   button_hover_color=ACCENT2,
+                                   text_color=TEXT_MAIN,
+                                   font=("Courier New", 11), width=160), 1)
+
+            _row(form, "Angle", lambda p:
+                 ctk.CTkOptionMenu(p, variable=v_angle,
+                                   values=ANGLE_OPTS,
+                                   fg_color=BG_CARD, button_color=ACCENT,
+                                   button_hover_color=ACCENT2,
+                                   text_color=TEXT_MAIN,
+                                   font=("Courier New", 11), width=160), 2)
+
+            _row(form, "Distance", lambda p:
+                 ctk.CTkOptionMenu(p, variable=v_dist,
+                                   values=DIST_OPTS,
+                                   fg_color=BG_CARD, button_color=ACCENT,
+                                   button_hover_color=ACCENT2,
+                                   text_color=TEXT_MAIN,
+                                   font=("Courier New", 11), width=160), 3)
+
+            _row(form, "Lighting", lambda p:
+                 ctk.CTkOptionMenu(p, variable=v_light,
+                                   values=LIGHT_OPTS,
+                                   fg_color=BG_CARD, button_color=ACCENT,
+                                   button_hover_color=ACCENT2,
+                                   text_color=TEXT_MAIN,
+                                   font=("Courier New", 11), width=160), 4)
+
+            _row(form, "Sequence (4 digits)", lambda p:
+                 ctk.CTkEntry(p, textvariable=v_seq, width=160,
+                              font=("Courier New", 11), fg_color=BG_CARD,
+                              text_color=TEXT_MAIN, border_color=ACCENT), 5)
+
+            # ── live preview label ────────────────────────────────────────────
+            preview_var = tk.StringVar(value="")
+            preview_lbl = ctk.CTkLabel(dlg, textvariable=preview_var,
+                                       font=("Courier New", 9),
+                                       text_color=SUCCESS)
+            preview_lbl.pack(pady=(10, 0))
+
+            def _update_preview(*_):
+                new_parts = dict(p)
+                new_parts.update({
+                    "room": v_room.get().strip(),
+                    "height": v_height.get(),
+                    "angle": v_angle.get(),
+                    "distance": v_dist.get(),
+                    "lighting": v_light.get(),
+                    "sequence": v_seq.get().strip(),
+                    "is_depth": False, "ext": ".jpg"
+                })
+                color_name = build_filename(new_parts)
+                new_parts["is_depth"] = True
+                new_parts["ext"] = ".png"
+                depth_name = build_filename(new_parts)
+                preview_var.set("Color: " + color_name + "\nDepth: " + depth_name)
+
+            for v in (v_room, v_height, v_angle, v_dist, v_light, v_seq):
+                v.trace_add("write", _update_preview)
+            _update_preview()
+
+            err_var = tk.StringVar(value="")
+            ctk.CTkLabel(dlg, textvariable=err_var, font=("Courier New", 9),
+                         text_color=DANGER).pack(pady=(2, 0))
+
+            def _do_rename():
+                room = v_room.get().strip()
+                seq  = v_seq.get().strip()
+
+                if not re.fullmatch(r"\d{6}", room):
+                    err_var.set("Room must be exactly 6 digits (FFRRRR).")
+                    return
+                if not re.fullmatch(r"\d{4}", seq):
+                    err_var.set("Sequence must be exactly 4 digits.")
+                    return
+
+                new_parts_base = {
+                    "room": room, "height": v_height.get(),
+                    "angle": v_angle.get(), "distance": v_dist.get(),
+                    "lighting": v_light.get(), "sequence": seq,
+                }
+
+                errors = []
+                renamed_color = None
+                renamed_depth = None
+
+                # rename color (.jpg)
+                if rec["color_path"] and os.path.isfile(rec["color_path"]):
+                    np = dict(new_parts_base)
+                    np.update({"is_depth": False, "ext": ".jpg"})
+                    new_name  = build_filename(np)
+                    new_path  = os.path.join(
+                        os.path.dirname(rec["color_path"]), new_name)
+                    try:
+                        os.rename(rec["color_path"], new_path)
+                        renamed_color = new_path
+                    except Exception as e:
+                        errors.append(f"Color: {e}")
+
+                # rename depth (.png)
+                if rec["depth_path"] and os.path.isfile(rec["depth_path"]):
+                    np = dict(new_parts_base)
+                    np.update({"is_depth": True, "ext": ".png"})
+                    new_name  = build_filename(np)
+                    new_path  = os.path.join(
+                        os.path.dirname(rec["depth_path"]), new_name)
+                    try:
+                        os.rename(rec["depth_path"], new_path)
+                        renamed_depth = new_path
+                    except Exception as e:
+                        errors.append(f"Depth: {e}")
+
+                if errors:
+                    err_var.set("  |  ".join(errors))
+                    return
+
+                # update the in-memory record so viewer reflects new name
+                rec["color_path"] = renamed_color or rec["color_path"]
+                rec["depth_path"] = renamed_depth or rec["depth_path"]
+                new_key = (f"{room}_{v_height.get()}_{v_angle.get()}_"
+                           f"{v_dist.get()}_{v_light.get()}_{seq}")
+                old_key = rec["base_key"]
+                rec["base_key"] = new_key
+                rec["parts"].update(new_parts_base)
+                rec["parts"]["original"] = (
+                    os.path.basename(rec["color_path"])
+                    if rec["color_path"] else new_key)
+
+                # migrate object counts to new key
+                if old_key in state["object_counts"]:
+                    state["object_counts"][new_key] =                         state["object_counts"].pop(old_key)
+
+                dlg.destroy()
+                refresh()
+
+            ctk.CTkButton(dlg, text="✔  Apply Rename", height=40,
+                          fg_color=ACCENT, hover_color=ACCENT2,
+                          font=("Courier New", 12, "bold"), text_color="white",
+                          command=_do_rename).pack(fill="x", padx=20, pady=(12, 4))
+            ctk.CTkButton(dlg, text="Cancel", height=32,
+                          fg_color=BG_FIELD, border_width=1, border_color=BORDER,
+                          hover_color=BG_MID, font=("Courier New", 11),
+                          text_color=TEXT_DIM,
+                          command=dlg.destroy).pack(fill="x", padx=20, pady=(0, 14))
 
         # ── wire up buttons ───────────────────────────────────────────────────
         def set_mode(m):
